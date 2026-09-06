@@ -58,7 +58,7 @@ export async function saveJournalEntry(userId: string, entry: JournalEntry): Pro
     updatedAt: Date.now()
   };
 
-  // 1. Always guarantee local persistence first (zero data loss)
+  // 1. Always guarantee local persistence first (zero data loss, instant)
   if (typeof window !== "undefined") {
     const localStore = getBrowserStorage(userId);
     localStore.set(updatedEntry.id, updatedEntry);
@@ -68,15 +68,17 @@ export async function saveJournalEntry(userId: string, entry: JournalEntry): Pro
     memStore.set(updatedEntry.id, updatedEntry);
   }
 
-  // 2. Attempt remote Firestore sync if configured
+  // 2. Non-blocking asynchronous remote Firestore sync
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
-    try {
-      const entryRef = doc(db, "users", userId, "entries", updatedEntry.id);
-      await setDoc(entryRef, updatedEntry, { merge: true });
-    } catch (firestoreErr) {
-      console.warn("Firestore sync warning (entry persisted locally):", firestoreErr);
-      // Do not throw if local persistence succeeded
-    }
+    // Fire in the background - never hang UI or delay notifications
+    (async () => {
+      try {
+        const entryRef = doc(db, "users", userId, "entries", updatedEntry.id);
+        await setDoc(entryRef, updatedEntry, { merge: true });
+      } catch (firestoreErr) {
+        console.warn("Firestore background sync warning (entry is safely stored locally):", firestoreErr);
+      }
+    })();
   }
 }
 
@@ -92,12 +94,14 @@ export async function getJournalEntry(userId: string, entryId: string): Promise<
     if (mem) return mem;
   }
 
-  // Fallback to Firestore
+  // Fallback to Firestore with timeout guard
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
     try {
       const entryRef = doc(db, "users", userId, "entries", entryId);
-      const snapshot = await getDoc(entryRef);
-      if (snapshot.exists()) {
+      const fetchPromise = getDoc(entryRef);
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+      const snapshot = await Promise.race([fetchPromise, timeout]);
+      if (snapshot && "exists" in snapshot && snapshot.exists()) {
         return snapshot.data() as JournalEntry;
       }
     } catch (err) {
@@ -117,19 +121,25 @@ export async function getUserJournalEntries(userId: string): Promise<JournalEntr
     try {
       const entriesRef = collection(db, "users", userId, "entries");
       const q = query(entriesRef, orderBy("createdAt", "desc"));
-      const snapshot = await getDocs(q);
       
-      // Merge Firestore entries into local map
-      snapshot.docs.forEach((d) => {
-        const remote = d.data() as JournalEntry;
-        const local = localMap.get(remote.id);
-        if (!local || remote.updatedAt > local.updatedAt) {
-          localMap.set(remote.id, remote);
-        }
-      });
+      // Guard against Firestore connection stalls with a 1500ms timeout
+      const remoteFetch = getDocs(q);
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+      const snapshot = await Promise.race([remoteFetch, timeout]);
+      
+      // Merge Firestore entries into local map if available
+      if (snapshot && "docs" in snapshot) {
+        snapshot.docs.forEach((d) => {
+          const remote = d.data() as JournalEntry;
+          const local = localMap.get(remote.id);
+          if (!local || remote.updatedAt > local.updatedAt) {
+            localMap.set(remote.id, remote);
+          }
+        });
 
-      if (typeof window !== "undefined") {
-        saveBrowserStorage(userId, localMap);
+        if (typeof window !== "undefined") {
+          saveBrowserStorage(userId, localMap);
+        }
       }
     } catch (firestoreErr) {
       console.warn("Firestore query warning (using local entries):", firestoreErr);
@@ -152,11 +162,13 @@ export async function deleteJournalEntry(userId: string, entryId: string): Promi
   }
 
   if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
-    try {
-      const entryRef = doc(db, "users", userId, "entries", entryId);
-      await deleteDoc(entryRef);
-    } catch (err) {
-      console.warn("Firestore delete warning:", err);
-    }
+    (async () => {
+      try {
+        const entryRef = doc(db, "users", userId, "entries", entryId);
+        await deleteDoc(entryRef);
+      } catch (err) {
+        console.warn("Firestore delete warning:", err);
+      }
+    })();
   }
 }
