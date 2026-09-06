@@ -5,7 +5,26 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { BookOpen, Sparkles, ShieldCheck, ArrowRight } from "lucide-react";
+import { BookOpen, Sparkles, ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
+
+function getFriendlyAuthError(code: string): string | null {
+  switch (code) {
+    case "auth/popup-closed-by-user":
+    case "auth/user-cancelled":
+      // User intentionally closed the popup or clicked cancel - no aggressive error
+      return null;
+    case "auth/unauthorized-domain":
+      return "This domain (localhost) is not authorized in Firebase Console. Add localhost under Authentication > Settings > Authorized domains.";
+    case "auth/configuration-not-found":
+      return "Google Sign-In is not enabled in your Firebase Console. Please enable Google in Authentication > Sign-in method.";
+    case "auth/popup-blocked":
+      return "The sign-in popup was blocked by your browser. Please allow popups for localhost.";
+    case "auth/network-request-failed":
+      return "Network connection issue. Please check your internet connection.";
+    default:
+      return "Unable to complete Google Sign-In. Please check your credentials and try again.";
+  }
+}
 
 export default function LandingPage() {
   const { user, loading, signInWithGoogle } = useAuth();
@@ -20,12 +39,13 @@ export default function LandingPage() {
       await signInWithGoogle();
       router.push("/dashboard");
     } catch (err: unknown) {
-      console.error(err);
-      if (process.env.NODE_ENV === "development") {
-        router.push("/dashboard");
-      } else {
-        setErrorMsg("Failed to complete Google Sign-In. Please check your credentials.");
+      console.error("Sign-in attempt failed:", err);
+      const errorCode = (err as { code?: string })?.code || "";
+      const friendly = getFriendlyAuthError(errorCode);
+      if (friendly) {
+        setErrorMsg(friendly);
       }
+      // Strict security: Never redirect to dashboard on failed or cancelled login
     } finally {
       setIsSigningIn(false);
     }
@@ -33,6 +53,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen flex flex-col justify-between p-6 sm:p-12 md:p-20 max-w-5xl mx-auto">
+      {/* Header / Brand */}
       <header className="flex items-center justify-between border-b border-stone-200 pb-6">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-stone-900 flex items-center justify-center text-white shadow-xs">
@@ -52,6 +73,7 @@ export default function LandingPage() {
         )}
       </header>
 
+      {/* Hero Section */}
       <main className="my-auto py-16 sm:py-24 max-w-2xl">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-100 border border-stone-200 text-xs font-medium text-stone-700 mb-6">
           <Sparkles className="w-3.5 h-3.5 text-stone-700" />
@@ -67,8 +89,9 @@ export default function LandingPage() {
         </p>
 
         {errorMsg && (
-          <div className="mb-6 p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-            {errorMsg}
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 animate-in fade-in duration-200">
+            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">{errorMsg}</div>
           </div>
         )}
 
@@ -89,6 +112,7 @@ export default function LandingPage() {
           </span>
         </div>
 
+        {/* Feature Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 pt-12 border-t border-stone-200">
           <Card className="p-4 bg-stone-50/70 border-stone-200">
             <h3 className="font-serif font-medium text-stone-900 mb-1">Empathetic Mirror</h3>
@@ -113,6 +137,7 @@ export default function LandingPage() {
         </div>
       </main>
 
+      {/* Footer */}
       <footer className="pt-6 border-t border-stone-200 text-xs text-stone-500 flex flex-col sm:flex-row items-center justify-between gap-4">
         <span>© 2026 Reflect App. All thoughts reserved.</span>
         <span>Minimalist craft guided by Anthropic & Addy Osmani UI principles.</span>
