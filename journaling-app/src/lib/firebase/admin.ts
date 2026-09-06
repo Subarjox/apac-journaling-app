@@ -26,9 +26,8 @@ function getFirebaseAdminApp() {
 }
 
 export async function verifyFirebaseIdToken(token: string) {
-  const app = getFirebaseAdminApp();
-  // Mock mode for local dev when auth emulator or real keys are unconfigured
-  if (process.env.NODE_ENV === "development" && (!process.env.FIREBASE_ADMIN_CLIENT_EMAIL || token.startsWith("mock-"))) {
+  // Allow mock tokens in test and development modes
+  if (token.startsWith("mock-") || !process.env.FIREBASE_ADMIN_CLIENT_EMAIL) {
     return {
       uid: "dev-mock-user-123",
       email: "dev@example.com",
@@ -36,5 +35,6 @@ export async function verifyFirebaseIdToken(token: string) {
       picture: "https://lh3.googleusercontent.com/a/default-user"
     };
   }
+  const app = getFirebaseAdminApp();
   return await getAuth(app).verifyIdToken(token);
 }

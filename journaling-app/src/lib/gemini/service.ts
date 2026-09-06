@@ -6,7 +6,7 @@ import path from "path";
 export const DEFAULT_SYSTEM_INSTRUCTION = `You are an empathetic, thoughtful, and introspective journaling companion. Your role is to help users reflect deeply on their thoughts, experiences, emotional states, and personal goals through multi-turn dialogue.
 
 Core Behavioral Principles:
-1. Reflective Listening & Gentle Inquiry: Acknowledge and validate the user'\''s emotional experience without being patronizing. Ask thoughtful, open-ended questions (one or two at most per turn). Avoid generic advice or cliché affirmations.
+1. Reflective Listening & Gentle Inquiry: Acknowledge and validate the user's emotional experience without being patronizing. Ask thoughtful, open-ended questions (one or two at most per turn). Avoid generic advice or cliche affirmations.
 2. Structure & Insight: Help identify recurring emotional themes, subconscious patterns, or latent tensions.
 3. Tone & Style: Warm, grounding, articulate, and calm. Avoid robotic phrasing.
 4. Safety & Boundaries: You are a journaling assistant, NOT a licensed therapist. Never diagnose conditions. If self-harm is mentioned, provide crisis hotline resources calmly and clearly.`;
@@ -19,7 +19,7 @@ function loadSystemInstruction(): string {
       if (content.length > 50) return content;
     }
   } catch (err) {
-    // Fallback to default in serverless / build environments
+    // Fallback to default in serverless or build environments
   }
   return DEFAULT_SYSTEM_INSTRUCTION;
 }
@@ -31,7 +31,6 @@ export async function* streamReflectionChat(
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey === "your_gemini_api_key" || apiKey.startsWith("mock-")) {
-    // Development Mock Streaming Fallback
     const simulatedReplies = [
       "I hear how much weight that carries. ",
       "When you think about this situation, ",
@@ -84,7 +83,6 @@ export async function generateEntrySummary(
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey === "your_gemini_api_key" || apiKey.startsWith("mock-")) {
-    // Development Mock Summary Fallback
     return {
       summary: "A candid personal reflection touching on emotional overwhelm, daily friction, and the search for balance.",
       keyInsights: [
