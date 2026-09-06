@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { ChatTurn, EntrySummaryResponse } from "@/types/journal";
+import { getGeminiApiKey } from "@/lib/secrets/secretManager";
 import fs from "fs";
 import path from "path";
 
@@ -28,7 +29,7 @@ export async function* streamReflectionChat(
   history: ChatTurn[],
   userPrompt: string
 ): AsyncGenerator<string, void, unknown> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = await getGeminiApiKey();
 
   if (!apiKey || apiKey === "your_gemini_api_key" || apiKey.startsWith("mock-")) {
     const simulatedReplies = [
@@ -80,7 +81,7 @@ export async function generateEntrySummary(
   entryContent: string,
   turns: ChatTurn[]
 ): Promise<EntrySummaryResponse> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = await getGeminiApiKey();
 
   if (!apiKey || apiKey === "your_gemini_api_key" || apiKey.startsWith("mock-")) {
     return {
