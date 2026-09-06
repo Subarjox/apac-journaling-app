@@ -19,7 +19,7 @@ function loadSystemInstruction(): string {
       if (content.length > 50) return content;
     }
   } catch (err) {
-    // Fallback to default in serverless or build environments
+    // Fallback in serverless environments
   }
   return DEFAULT_SYSTEM_INSTRUCTION;
 }
@@ -59,7 +59,7 @@ export async function* streamReflectionChat(
   ];
 
   const responseStream = await ai.models.generateContentStream({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents: formattedContents,
     config: {
       systemInstruction: {
@@ -114,7 +114,7 @@ Synthesize this session into JSON matching this exact structure:
 }`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json"
