@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/context/ToastContext";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { EntryEditor } from "@/components/journal/EntryEditor";
 import { ReflectionStream } from "@/components/journal/ReflectionStream";
@@ -16,6 +17,7 @@ import { MessageSquare, Edit3 } from "lucide-react";
 
 export default function DashboardPage() {
   const { user, loading, getIdToken } = useAuth();
+  const { showError, showSuccess } = useToast();
   const router = useRouter();
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -52,8 +54,9 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Failed to load user entries:", err);
+      showError("Failed to fetch past journal entries from database.", "Database Error");
     }
-  }, [createBlankEntry]);
+  }, [createBlankEntry, showError]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -90,8 +93,10 @@ export default function DashboardPage() {
         }
         return [activeEntry, ...prev];
       });
+      showSuccess("Your reflection has been safely recorded.", "Entry Saved");
     } catch (err) {
       console.error("Save entry failed:", err);
+      showError("Unable to save entry to Firestore. Please check your connection.", "Save Failed");
     } finally {
       setIsSaving(false);
     }
@@ -105,7 +110,11 @@ export default function DashboardPage() {
       updatedAt: Date.now()
     };
     setActiveEntry(updatedEntry);
-    await saveJournalEntry(user.uid, updatedEntry);
+    try {
+      await saveJournalEntry(user.uid, updatedEntry);
+    } catch (err) {
+      console.error("Auto-saving turn failed:", err);
+    }
   };
 
   const handleSynthesize = async () => {
@@ -113,7 +122,7 @@ export default function DashboardPage() {
     setIsSynthesizing(true);
     try {
       const token = await getIdToken();
-      if (!token) throw new Error("Authentication token required");
+      if (!token) throw new Error("Authentication token missing");
 
       const res = await fetch("/api/journal/summarize", {
         method: "POST",
@@ -139,8 +148,10 @@ export default function DashboardPage() {
       };
       setActiveEntry(updatedWithSummary);
       await saveJournalEntry(user.uid, updatedWithSummary);
+      showSuccess("Gemini successfully extracted key patterns and takeaways.", "Reflection Synthesized");
     } catch (err) {
       console.error("Synthesize error:", err);
+      showError("Gemini was unable to synthesize the session. Please check your network and try again.", "Synthesis Error");
     } finally {
       setIsSynthesizing(false);
     }
@@ -176,7 +187,6 @@ export default function DashboardPage() {
       />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden p-3 sm:p-5">
-        {/* Mobile Tab Switcher */}
         <div className="flex md:hidden items-center justify-center gap-2 mb-3 bg-stone-200/60 p-1 rounded-lg">
           <button
             onClick={() => setActiveTab("editor")}
@@ -196,7 +206,6 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Dual Panel Workspace */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 h-full overflow-hidden">
           <div
             className={`h-full md:col-span-7 flex flex-col overflow-hidden ${

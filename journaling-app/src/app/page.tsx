@@ -3,15 +3,15 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/context/ToastContext";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { BookOpen, Sparkles, ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
+import { BookOpen, Sparkles, ShieldCheck, ArrowRight } from "lucide-react";
 
 function getFriendlyAuthError(code: string): string | null {
   switch (code) {
     case "auth/popup-closed-by-user":
     case "auth/user-cancelled":
-      // User intentionally closed the popup or clicked cancel - no aggressive error
       return null;
     case "auth/unauthorized-domain":
       return "This domain (localhost) is not authorized in Firebase Console. Add localhost under Authentication > Settings > Authorized domains.";
@@ -28,13 +28,12 @@ function getFriendlyAuthError(code: string): string | null {
 
 export default function LandingPage() {
   const { user, loading, signInWithGoogle } = useAuth();
+  const { showError } = useToast();
   const router = useRouter();
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSignIn = async () => {
     setIsSigningIn(true);
-    setErrorMsg(null);
     try {
       await signInWithGoogle();
       router.push("/dashboard");
@@ -43,9 +42,8 @@ export default function LandingPage() {
       const errorCode = (err as { code?: string })?.code || "";
       const friendly = getFriendlyAuthError(errorCode);
       if (friendly) {
-        setErrorMsg(friendly);
+        showError(friendly, "Sign-In Failed");
       }
-      // Strict security: Never redirect to dashboard on failed or cancelled login
     } finally {
       setIsSigningIn(false);
     }
@@ -87,13 +85,6 @@ export default function LandingPage() {
         <p className="text-lg text-stone-600 font-normal leading-relaxed mb-8">
           Write unfiltered thoughts. Engage in gentle, Socratic reflection with Gemini without judgment, unsolicited life advice, or noise.
         </p>
-
-        {errorMsg && (
-          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 animate-in fade-in duration-200">
-            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <div className="flex-1 leading-relaxed">{errorMsg}</div>
-          </div>
-        )}
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
           <Button
