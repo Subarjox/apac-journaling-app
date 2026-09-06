@@ -1,69 +1,122 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { BookOpen, Sparkles, ShieldCheck, ArrowRight } from "lucide-react";
+
+export default function LandingPage() {
+  const { user, loading, signInWithGoogle } = useAuth();
+  const router = useRouter();
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setIsSigningIn(true);
+    setErrorMsg(null);
+    try {
+      await signInWithGoogle();
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      console.error(err);
+      if (process.env.NODE_ENV === "development") {
+        router.push("/dashboard");
+      } else {
+        setErrorMsg("Failed to complete Google Sign-In. Please check your credentials.");
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen flex flex-col justify-between p-6 sm:p-12 md:p-20 max-w-5xl mx-auto">
+      <header className="flex items-center justify-between border-b border-stone-200 pb-6">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg bg-stone-900 flex items-center justify-center text-white shadow-xs">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <span className="font-serif text-xl tracking-tight font-semibold text-stone-900">Reflect</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        {user ? (
+          <Button onClick={() => router.push("/dashboard")} variant="outline" size="sm">
+            Dashboard <ArrowRight className="w-4 h-4 ml-1" />
+          </Button>
+        ) : (
+          <Button onClick={handleSignIn} isLoading={isSigningIn} variant="outline" size="sm">
+            Sign In
+          </Button>
+        )}
+      </header>
+
+      <main className="my-auto py-16 sm:py-24 max-w-2xl">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-100 border border-stone-200 text-xs font-medium text-stone-700 mb-6">
+          <Sparkles className="w-3.5 h-3.5 text-stone-700" />
+          Powered by Gemini 3.6 Flash & Cloud Firestore
+        </div>
+
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-normal tracking-tight text-stone-900 leading-[1.15] mb-6">
+          A quiet space to clarify your mind.
+        </h1>
+
+        <p className="text-lg text-stone-600 font-normal leading-relaxed mb-8">
+          Write unfiltered thoughts. Engage in gentle, Socratic reflection with Gemini without judgment, unsolicited life advice, or noise.
+        </p>
+
+        {errorMsg && (
+          <div className="mb-6 p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            {errorMsg}
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
+          <Button
+            size="lg"
+            onClick={user ? () => router.push("/dashboard") : handleSignIn}
+            isLoading={isSigningIn || loading}
+            className="shadow-sm"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {user ? "Open Your Journal" : "Continue with Google"}
+            <ArrowRight className="w-4 h-4 ml-1" />
+          </Button>
+
+          <span className="text-xs text-stone-500 flex items-center gap-1.5 self-center sm:self-auto sm:ml-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            Private & strictly user-isolated
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 pt-12 border-t border-stone-200">
+          <Card className="p-4 bg-stone-50/70 border-stone-200">
+            <h3 className="font-serif font-medium text-stone-900 mb-1">Empathetic Mirror</h3>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Gemini asks grounding questions to help you uncover underlying themes in your day.
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-stone-50/70 border-stone-200">
+            <h3 className="font-serif font-medium text-stone-900 mb-1">Encrypted & Isolated</h3>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Cloud Firestore security rules isolate your entries strictly to your unique account UID.
+            </p>
+          </Card>
+
+          <Card className="p-4 bg-stone-50/70 border-stone-200">
+            <h3 className="font-serif font-medium text-stone-900 mb-1">Key Insight Synthesis</h3>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Synthesize multi-turn conversations into concise takeaways and mood tags in one click.
+            </p>
+          </Card>
         </div>
       </main>
+
+      <footer className="pt-6 border-t border-stone-200 text-xs text-stone-500 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <span>© 2026 Reflect App. All thoughts reserved.</span>
+        <span>Minimalist craft guided by Anthropic & Addy Osmani UI principles.</span>
+      </footer>
     </div>
   );
 }
