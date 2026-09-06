@@ -89,7 +89,9 @@ export async function generateEntrySummary(
         "Identified persistent friction between current obligations and personal boundaries.",
         "Recognized the need for deliberate pacing and intentional pauses."
       ],
-      suggestedTags: ["reflection", "boundaries", "clarity"]
+      suggestedTags: ["reflection", "boundaries", "clarity"],
+      suggestedTitle: "Finding Balance Amidst Daily Demands",
+      journalDraft: "Today I confronted the underlying tension between what is expected of me and what I actually have the capacity to give. Reflecting on this made me realize that saying no is not an act of failure, but a necessary boundary for my peace of mind."
     };
   }
 
@@ -101,16 +103,22 @@ export async function generateEntrySummary(
   const prompt = `Analyze the following personal journal entry and reflection dialogue:
 
 INITIAL ENTRY:
-${entryContent}
+${entryContent || "(No initial entry provided)"}
 
 DIALOGUE:
-${transcript}
+${transcript || "(No dialogue turns)"}
 
-Synthesize this session into JSON matching this exact structure:
+INSTRUCTIONS:
+1. Pay special attention to the latest messages in the dialogue, extracting the user's latest insights, resolutions, or conclusions.
+2. Produce a coherent "journalDraft" written in the user's voice (first-person "I") that weaves together their story, the discussion with the reflection partner, and their final takeaways.
+3. Suggest an evocative, reflective 3-6 word "suggestedTitle".
+4. Synthesize this session into JSON matching this exact structure:
 {
-  "summary": "2-3 sentence overview of main thoughts and emotional states",
-  "keyInsights": ["bullet 1", "bullet 2"],
-  "suggestedTags": ["tag1", "tag2", "tag3"]
+  "suggestedTitle": "Short reflective title",
+  "summary": "2-3 sentence overview of main thoughts and current emotional state",
+  "keyInsights": ["Specific insight 1", "Specific takeaway 2", "Recent conclusion 3"],
+  "suggestedTags": ["tag1", "tag2", "tag3"],
+  "journalDraft": "Comprehensive journal text in first person capturing the story and latest conclusions"
 }`;
 
   const response = await ai.models.generateContent({
@@ -124,15 +132,19 @@ Synthesize this session into JSON matching this exact structure:
   try {
     const parsed = JSON.parse(response.text || "{}");
     return {
+      suggestedTitle: parsed.suggestedTitle || "Reflections from Today",
       summary: parsed.summary || "Reflection entry synthesized.",
-      keyInsights: parsed.keyInsights || [],
-      suggestedTags: parsed.suggestedTags || ["journal"]
+      keyInsights: Array.isArray(parsed.keyInsights) ? parsed.keyInsights : [],
+      suggestedTags: Array.isArray(parsed.suggestedTags) ? parsed.suggestedTags : ["journal", "reflection"],
+      journalDraft: parsed.journalDraft || parsed.summary || ""
     };
   } catch (err) {
     return {
+      suggestedTitle: "Reflections from Today",
       summary: response.text || "Entry recorded.",
       keyInsights: [],
-      suggestedTags: ["journal"]
+      suggestedTags: ["journal"],
+      journalDraft: response.text || ""
     };
   }
 }

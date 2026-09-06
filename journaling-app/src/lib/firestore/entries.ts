@@ -11,73 +11,152 @@ import {
 import { db } from "@/lib/firebase/client";
 import type { JournalEntry } from "@/types/journal";
 
-// Local development fallback store for when live Firebase keys are not yet configured
+// Local storage fallback key prefix
+const STORAGE_PREFIX = "reflect_entries_";
+
+function getBrowserStorage(userId: string): Map<string, JournalEntry> {
+  const store = new Map<string, JournalEntry>();
+  if (typeof window === "undefined") return store;
+
+  try {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${userId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as JournalEntry[];
+      parsed.forEach((entry) => store.set(entry.id, entry));
+    }
+  } catch (err) {
+    console.warn("LocalStorage read warning:", err);
+  }
+  return store;
+}
+
+function saveBrowserStorage(userId: string, store: Map<string, JournalEntry>) {
+  if (typeof window === "undefined") return;
+  try {
+    const array = Array.from(store.values());
+    localStorage.setItem(`${STORAGE_PREFIX}${userId}`, JSON.stringify(array));
+  } catch (err) {
+    console.warn("LocalStorage write warning:", err);
+  }
+}
+
+// Memory store for server-side / vitest environments
 const inMemoryStore = new Map<string, Map<string, JournalEntry>>();
 
-function getLocalStore(userId: string): Map<string, JournalEntry> {
+function getMemoryStore(userId: string): Map<string, JournalEntry> {
   if (!inMemoryStore.has(userId)) {
     inMemoryStore.set(userId, new Map());
   }
   return inMemoryStore.get(userId)!;
 }
 
-const isMockFirebase = !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === "your_project_id" || 
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === "mock-project";
-
 export async function saveJournalEntry(userId: string, entry: JournalEntry): Promise<void> {
   if (!userId) throw new Error("userId is required to save journal entry");
 
-  if (isMockFirebase) {
-    const store = getLocalStore(userId);
-    store.set(entry.id, { ...entry, updatedAt: Date.now() });
-    return;
-  }
-
-  const entryRef = doc(db, "users", userId, "entries", entry.id);
-  await setDoc(entryRef, {
+  const updatedEntry = {
     ...entry,
     updatedAt: Date.now()
-  }, { merge: true });
+  };
+
+  // 1. Always guarantee local persistence first (zero data loss)
+  if (typeof window !== "undefined") {
+    const localStore = getBrowserStorage(userId);
+    localStore.set(updatedEntry.id, updatedEntry);
+    saveBrowserStorage(userId, localStore);
+  } else {
+    const memStore = getMemoryStore(userId);
+    memStore.set(updatedEntry.id, updatedEntry);
+  }
+
+  // 2. Attempt remote Firestore sync if configured
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    try {
+      const entryRef = doc(db, "users", userId, "entries", updatedEntry.id);
+      await setDoc(entryRef, updatedEntry, { merge: true });
+    } catch (firestoreErr) {
+      console.warn("Firestore sync warning (entry persisted locally):", firestoreErr);
+      // Do not throw if local persistence succeeded
+    }
+  }
 }
 
 export async function getJournalEntry(userId: string, entryId: string): Promise<JournalEntry | null> {
   if (!userId || !entryId) return null;
 
-  if (isMockFirebase) {
-    const store = getLocalStore(userId);
-    return store.get(entryId) || null;
+  // Check local storage first
+  if (typeof window !== "undefined") {
+    const local = getBrowserStorage(userId).get(entryId);
+    if (local) return local;
+  } else {
+    const mem = getMemoryStore(userId).get(entryId);
+    if (mem) return mem;
   }
 
-  const entryRef = doc(db, "users", userId, "entries", entryId);
-  const snapshot = await getDoc(entryRef);
-  if (!snapshot.exists()) return null;
-  return snapshot.data() as JournalEntry;
+  // Fallback to Firestore
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    try {
+      const entryRef = doc(db, "users", userId, "entries", entryId);
+      const snapshot = await getDoc(entryRef);
+      if (snapshot.exists()) {
+        return snapshot.data() as JournalEntry;
+      }
+    } catch (err) {
+      console.warn("Firestore fetch single entry warning:", err);
+    }
+  }
+
+  return null;
 }
 
 export async function getUserJournalEntries(userId: string): Promise<JournalEntry[]> {
   if (!userId) return [];
 
-  if (isMockFirebase) {
-    const store = getLocalStore(userId);
-    return Array.from(store.values()).sort((a, b) => b.createdAt - a.createdAt);
+  const localMap = typeof window !== "undefined" ? getBrowserStorage(userId) : getMemoryStore(userId);
+
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    try {
+      const entriesRef = collection(db, "users", userId, "entries");
+      const q = query(entriesRef, orderBy("createdAt", "desc"));
+      const snapshot = await getDocs(q);
+      
+      // Merge Firestore entries into local map
+      snapshot.docs.forEach((d) => {
+        const remote = d.data() as JournalEntry;
+        const local = localMap.get(remote.id);
+        if (!local || remote.updatedAt > local.updatedAt) {
+          localMap.set(remote.id, remote);
+        }
+      });
+
+      if (typeof window !== "undefined") {
+        saveBrowserStorage(userId, localMap);
+      }
+    } catch (firestoreErr) {
+      console.warn("Firestore query warning (using local entries):", firestoreErr);
+    }
   }
 
-  const entriesRef = collection(db, "users", userId, "entries");
-  const q = query(entriesRef, orderBy("createdAt", "desc"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((doc) => doc.data() as JournalEntry);
+  return Array.from(localMap.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function deleteJournalEntry(userId: string, entryId: string): Promise<void> {
   if (!userId || !entryId) return;
 
-  if (isMockFirebase) {
-    const store = getLocalStore(userId);
-    store.delete(entryId);
-    return;
+  if (typeof window !== "undefined") {
+    const localStore = getBrowserStorage(userId);
+    localStore.delete(entryId);
+    saveBrowserStorage(userId, localStore);
+  } else {
+    const memStore = getMemoryStore(userId);
+    memStore.delete(entryId);
   }
 
-  const entryRef = doc(db, "users", userId, "entries", entryId);
-  await deleteDoc(entryRef);
+  if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+    try {
+      const entryRef = doc(db, "users", userId, "entries", entryId);
+      await deleteDoc(entryRef);
+    } catch (err) {
+      console.warn("Firestore delete warning:", err);
+    }
+  }
 }

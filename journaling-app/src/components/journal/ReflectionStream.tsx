@@ -4,24 +4,39 @@ import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import type { ChatTurn } from "@/types/journal";
 import { Button } from "@/components/ui/Button";
-import { Send, Bot, User, Sparkles } from "lucide-react";
+import { Send, Bot, User, Sparkles, ArrowRightLeft } from "lucide-react";
 
 interface ReflectionStreamProps {
   turns: ChatTurn[];
   onAddTurn: (turn: ChatTurn) => void;
   entryContent: string;
+  onTransferToJournal?: () => void;
+  isTransferring?: boolean;
 }
 
 export function ReflectionStream({
   turns,
   onAddTurn,
-  entryContent
+  entryContent,
+  onTransferToJournal,
+  isTransferring = false
 }: ReflectionStreamProps) {
   const { getIdToken } = useAuth();
+  const [localTurns, setLocalTurns] = useState<ChatTurn[]>(turns);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Sync turns whenever parent turns change (e.g. entry switched or loaded from DB)
+  useEffect(() => {
+    setLocalTurns((prev) => {
+      const turnMap = new Map<string, ChatTurn>();
+      prev.forEach((t) => turnMap.set(t.id, t));
+      turns.forEach((t) => turnMap.set(t.id, t));
+      return Array.from(turnMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+    });
+  }, [turns]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -29,7 +44,7 @@ export function ReflectionStream({
 
   useEffect(() => {
     scrollToBottom();
-  }, [turns, streamingContent]);
+  }, [localTurns, streamingContent]);
 
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
@@ -43,6 +58,9 @@ export function ReflectionStream({
       content: userText,
       timestamp: Date.now()
     };
+
+    // Optimistically update local turns immediately so chat bubble never disappears
+    setLocalTurns((prev) => [...prev, userTurn]);
     onAddTurn(userTurn);
 
     setIsStreaming(true);
@@ -59,7 +77,7 @@ export function ReflectionStream({
         },
         body: JSON.stringify({
           prompt: userText,
-          history: [...turns, userTurn]
+          history: [...localTurns, userTurn]
         })
       });
 
@@ -87,6 +105,7 @@ export function ReflectionStream({
         content: fullModelText,
         timestamp: Date.now()
       };
+      setLocalTurns((prev) => [...prev, modelTurn]);
       onAddTurn(modelTurn);
     } catch (err) {
       console.error("Reflection chat failed:", err);
@@ -96,6 +115,7 @@ export function ReflectionStream({
         content: "I ran into a problem connecting to reflection services. Please check your network or try again.",
         timestamp: Date.now()
       };
+      setLocalTurns((prev) => [...prev, errorTurn]);
       onAddTurn(errorTurn);
     } finally {
       setIsStreaming(false);
@@ -113,19 +133,36 @@ export function ReflectionStream({
   return (
     <div className="flex flex-col h-full bg-stone-50/70 rounded-xl border border-stone-200 shadow-xs overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-stone-200/80 bg-white flex items-center justify-between">
+      <div className="p-3.5 sm:p-4 border-b border-stone-200/80 bg-white flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-stone-700" />
           <span className="font-serif text-sm font-semibold text-stone-900">
             Gemini Reflection Partner
           </span>
         </div>
-        <span className="text-[11px] text-stone-400">Press Cmd+Enter to send</span>
+
+        <div className="flex items-center gap-2">
+          {onTransferToJournal && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onTransferToJournal}
+              isLoading={isTransferring}
+              disabled={localTurns.length === 0 || isStreaming || isTransferring}
+              className="text-xs gap-1.5 h-7 px-2.5 bg-white border-stone-300 text-stone-700 hover:bg-stone-50 shadow-2xs"
+              title="Transfer reflection summary and latest conclusions directly into your journal editor"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 text-stone-600" />
+              <span className="hidden sm:inline">Transfer to Journal</span>
+              <span className="sm:hidden">Transfer</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Message Stream */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {turns.length === 0 && !isStreaming ? (
+        {localTurns.length === 0 && !isStreaming ? (
           <div className="p-8 text-center flex flex-col items-center justify-center h-full text-stone-400">
             <Bot className="w-8 h-8 mb-2 opacity-50 text-stone-500" />
             <p className="text-xs max-w-xs leading-relaxed">
@@ -134,7 +171,7 @@ export function ReflectionStream({
           </div>
         ) : (
           <>
-            {turns.map((turn) => {
+            {localTurns.map((turn) => {
               const isUser = turn.role === "user";
               return (
                 <div
@@ -179,6 +216,26 @@ export function ReflectionStream({
                 </div>
               </div>
             )}
+
+            {localTurns.length >= 2 && !isStreaming && onTransferToJournal && (
+              <div className="p-3 rounded-lg border border-stone-200 bg-white text-center shadow-2xs my-3">
+                <p className="text-xs text-stone-600 mb-2">
+                  Ready to turn this conversation into your journal entry?
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onTransferToJournal}
+                  isLoading={isTransferring}
+                  disabled={isStreaming || isTransferring}
+                  className="text-xs gap-1.5 h-7 px-3 bg-stone-900 text-white hover:bg-stone-800 border-none mx-auto"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-stone-300" />
+                  <span>Transfer Reflection to Journal</span>
+                </Button>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </>
         )}

@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "reflection">("editor");
 
+  const [isTransferringChat, setIsTransferringChat] = useState(false);
+
   const createBlankEntry = useCallback((uid: string): JournalEntry => {
     return {
       id: `entry-${Date.now()}`,
@@ -48,9 +50,15 @@ export default function DashboardPage() {
       const userEntries = await getUserJournalEntries(uid);
       setEntries(userEntries);
       if (userEntries.length > 0) {
-        setActiveEntry(userEntries[0]);
+        setActiveEntry((curr) => {
+          if (curr) {
+            const found = userEntries.find((e) => e.id === curr.id);
+            return found || userEntries[0];
+          }
+          return userEntries[0];
+        });
       } else {
-        setActiveEntry(createBlankEntry(uid));
+        setActiveEntry((curr) => curr || createBlankEntry(uid));
       }
     } catch (err) {
       console.error("Failed to load user entries:", err);
@@ -72,6 +80,11 @@ export default function DashboardPage() {
     setActiveEntry(entry);
   };
 
+  const handleUpdateActiveEntry = useCallback((updated: JournalEntry) => {
+    setActiveEntry(updated);
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+  }, []);
+
   const handleNewEntry = () => {
     if (!user) return;
     const fresh = createBlankEntry(user.uid);
@@ -83,39 +96,119 @@ export default function DashboardPage() {
     if (!activeEntry || !user) return;
     setIsSaving(true);
     try {
-      await saveJournalEntry(user.uid, activeEntry);
+      const toSave: JournalEntry = {
+        ...activeEntry,
+        updatedAt: Date.now()
+      };
+      await saveJournalEntry(user.uid, toSave);
+      setActiveEntry(toSave);
       setEntries((prev) => {
-        const index = prev.findIndex((e) => e.id === activeEntry.id);
+        const index = prev.findIndex((e) => e.id === toSave.id);
         if (index >= 0) {
           const clone = [...prev];
-          clone[index] = activeEntry;
+          clone[index] = toSave;
           return clone;
         }
-        return [activeEntry, ...prev];
+        return [toSave, ...prev];
       });
       showSuccess("Your reflection has been safely recorded.", "Entry Saved");
     } catch (err) {
       console.error("Save entry failed:", err);
-      showError("Unable to save entry to Firestore. Please check your connection.", "Save Failed");
+      showError("Unable to save entry. Please check your connection.", "Save Failed");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleAddTurn = async (turn: ChatTurn) => {
+  const handleAddTurn = useCallback(async (turn: ChatTurn) => {
+    if (!user) return;
+    setActiveEntry((prev) => {
+      if (!prev) return prev;
+      if (prev.turns.some((t) => t.id === turn.id)) return prev;
+      const updated: JournalEntry = {
+        ...prev,
+        turns: [...prev.turns, turn],
+        updatedAt: Date.now()
+      };
+      setEntries((list) => list.map((e) => (e.id === updated.id ? updated : e)));
+      saveJournalEntry(user.uid, updated).catch((err) =>
+        console.error("Auto-saving turn failed:", err)
+      );
+      return updated;
+    });
+  }, [user]);
+
+  const handleTransferToJournal = useCallback(async () => {
     if (!activeEntry || !user) return;
-    const updatedEntry: JournalEntry = {
-      ...activeEntry,
-      turns: [...activeEntry.turns, turn],
-      updatedAt: Date.now()
-    };
-    setActiveEntry(updatedEntry);
-    try {
-      await saveJournalEntry(user.uid, updatedEntry);
-    } catch (err) {
-      console.error("Auto-saving turn failed:", err);
+    if (!activeEntry.turns || activeEntry.turns.length === 0) {
+      showError("No reflection dialogue to summarize. Talk with Gemini first.", "Nothing to Transfer");
+      return;
     }
-  };
+
+    setIsTransferringChat(true);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("Authentication token missing");
+
+      const res = await fetch("/api/journal/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          content: activeEntry.content,
+          turns: activeEntry.turns
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to summarize chat");
+      const result: EntrySummaryResponse = await res.json();
+
+      const journalSection = result.journalDraft || result.summary;
+      const conclusionsSection = result.keyInsights && result.keyInsights.length > 0
+        ? `\n\n### Key Conclusions & Insights:\n${result.keyInsights.map((k) => `• ${k}`).join("\n")}`
+        : "";
+
+      let newContent = "";
+      if (activeEntry.content && activeEntry.content.trim().length > 0) {
+        newContent = `${activeEntry.content.trim()}\n\n---\n### Reflection Summary & Conclusions (${new Date().toLocaleDateString([], { month: "short", day: "numeric" })})\n${journalSection}${conclusionsSection}`;
+      } else {
+        newContent = `${journalSection}${conclusionsSection}`;
+      }
+
+      // Smart title update: if current title is default/untitled or blank, adopt suggestedTitle
+      const isDefaultTitle = !activeEntry.title || activeEntry.title.trim().toLowerCase().includes("untitled");
+      const newTitle = isDefaultTitle && result.suggestedTitle ? result.suggestedTitle : activeEntry.title;
+
+      // Merge tags
+      const combinedTags = Array.from(
+        new Set([...activeEntry.moodTags, ...(result.suggestedTags || [])])
+      );
+
+      const updated: JournalEntry = {
+        ...activeEntry,
+        title: newTitle,
+        content: newContent,
+        summary: result.summary,
+        moodTags: combinedTags,
+        updatedAt: Date.now()
+      };
+
+      setActiveEntry(updated);
+      setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      await saveJournalEntry(user.uid, updated);
+
+      // Switch to editor view so user sees the transferred text immediately
+      setActiveTab("editor");
+      showSuccess("Reflection dialogue and conclusions transferred into your journal.", "Transferred to Canvas");
+    } catch (err) {
+      console.error("Transfer chat failed:", err);
+      showError("Failed to synthesize and transfer reflection. Please try again.", "Transfer Failed");
+    } finally {
+      setIsTransferringChat(false);
+    }
+  }, [activeEntry, user, getIdToken, showError, showSuccess]);
 
   const handleSynthesize = async () => {
     if (!activeEntry || !user) return;
@@ -147,6 +240,7 @@ export default function DashboardPage() {
         updatedAt: Date.now()
       };
       setActiveEntry(updatedWithSummary);
+      setEntries((prev) => prev.map((e) => (e.id === updatedWithSummary.id ? updatedWithSummary : e)));
       await saveJournalEntry(user.uid, updatedWithSummary);
       showSuccess("Gemini successfully extracted key patterns and takeaways.", "Reflection Synthesized");
     } catch (err) {
@@ -162,6 +256,7 @@ export default function DashboardPage() {
     const uniqueTags = Array.from(new Set([...activeEntry.moodTags, ...tags]));
     const updated = { ...activeEntry, moodTags: uniqueTags };
     setActiveEntry(updated);
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     await saveJournalEntry(user.uid, updated);
   };
 
@@ -215,7 +310,7 @@ export default function DashboardPage() {
             {activeEntry ? (
               <EntryEditor
                 entry={activeEntry}
-                onUpdateEntry={setActiveEntry}
+                onUpdateEntry={handleUpdateActiveEntry}
                 onSave={handleSaveEntry}
                 isSaving={isSaving}
                 onSynthesize={handleSynthesize}
@@ -238,6 +333,8 @@ export default function DashboardPage() {
                 turns={activeEntry.turns}
                 onAddTurn={handleAddTurn}
                 entryContent={activeEntry.content}
+                onTransferToJournal={handleTransferToJournal}
+                isTransferring={isTransferringChat}
               />
             )}
           </div>

@@ -21,4 +21,6 @@ export interface EntrySummaryResponse {
   summary: string;
   keyInsights: string[];
   suggestedTags: string[];
+  suggestedTitle?: string;
+  journalDraft?: string;
 }
